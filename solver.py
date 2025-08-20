@@ -4,11 +4,12 @@ import time
 from itertools import product
 import cvxpy as cp
 import time
+import queue 
 
 class Solver: 
     
 
-    def __init__ (self, dev : qml.device, ansatz : str = 'CIA', preprocessing : str = '', postprocessing : str = '', iterations_limit : int = 700, alpha : float = 0.1, accepterr : list[float] = [0.1]): 
+    def __init__ (self, dev : qml.device, ansatz : str = 'CIA', gate : str = 'Z', preprocessing : str = '', postprocessing : str = '', iterations_limit : int = 700, alpha : float = 0.1, accepterr : list[float] = [0.1], baren_check : bool = False, baren_threshold : int = 10, baren_rerr: float = 0.1): 
         
         '''
         Circuits and optimizers class
@@ -39,6 +40,12 @@ class Solver:
             CVaR coefficient
         accepterr : list[float] 
             list of errors with which we conclude fitted solution to be correct. Must be increasing
+        baren_check : bool = False 
+            whether baren plateau 
+        baren_threshold : int = 10
+            how many gradients should be calculated for baren plateau check
+        baren_rerr : float 
+            relative error for baren plateau identification 
         '''
         self.dev = dev 
         self.preprocessing = preprocessing
@@ -47,6 +54,10 @@ class Solver:
         self.iteration_limit = iterations_limit 
         self.accepterr = accepterr 
         self.alpha = alpha
+        self.baren_check = baren_check 
+        self.baren_threshold = baren_threshold
+        self.baren_rerr = baren_rerr 
+        self.gate = gate
 
     def _calculateQUBO (self, Q : np.ndarray, state_vector : np.ndarray):
         '''Calcs QUBO form's value by given [0,1] bitvector
@@ -137,19 +148,19 @@ class Solver:
         
         samples = samples.T
         sampled_energies = np.sort(np.array([self._calculateIsing(J, h, sample) for sample in samples]))
-        print(sampled_energies)
+        #print(sampled_energies)
         expectation = np.mean(sampled_energies[:int(alpha * sampled_energies.shape[0])])
         
         return expectation
         
-    def _classical_inspired_circuit (self, J : np.ndarray, h : np.ndarray, H_cost : np.tensor, params : np.ndarray, start: str = '', initial_angles : np.ndarray = [], mode : str = 'state', gate : str = 'X'):
+    def _classical_inspired_circuit (self, J : np.ndarray, h : np.ndarray, H_cost : np.tensor, params : np.ndarray, start: str = '', initial_angles : np.ndarray = [], mode : str = 'state'):
 
         '''
         Classical-inspired ansatz with only 1-qubit rotations
         
         **Initial state:** put all qubits in $\ket{+}$ (for Z basis) or do nothing (for X basis)
         
-        **Mixer layer:** implement RX (for Z basis) and RZ (for X basis) rotations on each qubit 
+        **Mixer layer:** implement RY (for Z and X basis) rotations on each qubit 
         
         **Cost layer:** do nothing
 
@@ -170,18 +181,15 @@ class Solver:
             a vector of initital angles for warm-start
         mode : str 
             state or expectation or samples
-        gate : str 
-            Z or X depending on entaglment gate ZZ or XX and measurments respectively 
-        
         '''
 
         dim = J.shape[0]
 
-        if (gate == 'X'):
+        if (self.gate == 'X'):
             # initial state - ket |0> on all qubits 
             for mixer in params:
                 for i in range (dim): #mixer layer 
-                    qml.RZ(mixer[i], wires = i)
+                    qml.RY(mixer[i], wires = i)
 
             match mode : 
                 case 'state':
@@ -193,7 +201,7 @@ class Solver:
                 case 'expectation':
                     return qml.expval(H_cost)
         
-        if (gate == 'Z'):
+        if (self.gate == 'Z'):
             #initial state - ket |+> on all qubits
 
             if (start == ''):
@@ -206,7 +214,7 @@ class Solver:
             for mixer in params:
                 if (start == ''):
                     for i in range (dim): #cold mixer layer 
-                        qml.RX(phi = mixer[i], wires = i)
+                        qml.RY(phi = mixer[i], wires = i)
                 elif (start == 'WS'): 
                     for i in range (0, 2 * dim, 2): #warm mixer layer
                         qml.RY(phi = -mixer[i], wires = i // 2)
@@ -224,7 +232,7 @@ class Solver:
                 case 'expectation':
                     return qml.expval(H_cost)
 
-    def _problem_inspired_circuit (self, J : np.ndarray, h : np.ndarray, H_cost : np.tensor, params : np.ndarray, mode : str = 'state', gate : str = 'X'):
+    def _problem_inspired_circuit (self, J : np.ndarray, h : np.ndarray, H_cost : np.tensor, params : np.ndarray, mode : str = 'state'):
         
         '''
         Problem-inspired ansatz circuit
@@ -253,7 +261,7 @@ class Solver:
         '''
         dim = J.shape[0]
         
-        if (gate == 'X'): 
+        if (self.gate == 'X'): 
             for layer_index in range (params.shape[0]): 
                 if (layer_index % 2 == 0): #mixer layer
                     beta = params[layer_index]
@@ -276,7 +284,7 @@ class Solver:
                     return state
                 case 'expectation':
                     return qml.expval(H_cost)
-        elif (gate == 'Z'):
+        elif (self.gate == 'Z'):
             for i in range(dim): #initial state
                 qml.H(wires = i) 
             for layer_index in range (params.shape[0]): 
@@ -301,7 +309,7 @@ class Solver:
                     return state
                 case 'expectation':
                     return qml.expval(H_cost)
-    def _MA_problem_inspired_circuit (self, J : np.ndarray, h : np.ndarray, H_cost : np.tensor, params : np.ndarray, start : str = '', mode : str = 'state', gate : str = 'X', initial_angles = []):
+    def _MA_problem_inspired_circuit (self, J : np.ndarray, h : np.ndarray, H_cost : np.tensor, params : np.ndarray, start : str = '', mode : str = 'state', initial_angles = []):
         
         '''
         Multi-angle problem-inspired ansatz circuit
@@ -331,7 +339,7 @@ class Solver:
         '''
         dim = J.shape[0]
         
-        if (gate == 'X'): 
+        if (self.gate == 'X'): 
             for layer_index in range (params.shape[0]): 
                 if (layer_index % (dim + 1) < dim): #mixer layer
                     beta = params[layer_index]
@@ -353,7 +361,7 @@ class Solver:
                     return state
                 case 'expectation':
                     return qml.expval(H_cost)
-        elif (gate == 'Z'):
+        elif (self.gate == 'Z'):
             if (start == ''):
                 for i in range(dim): #cold initial state
                     qml.H(wires = i) 
@@ -400,7 +408,7 @@ class Solver:
                 case 'ket':
                     return qml.state()
     
-    def _hardware_efficient_circuit  (self, J : np.ndarray, h : np.ndarray, H_cost : np.tensor, params : np.ndarray, mode : str = 'state', gate : str = 'X'):
+    def _hardware_efficient_circuit  (self, J : np.ndarray, h : np.ndarray, H_cost : np.tensor, params : np.ndarray, mode : str = 'state'):
         ''' 
         hardware-efficient one-angle cost layer parametrization ansatz circuit 
         
@@ -427,7 +435,7 @@ class Solver:
         '''
 
         dim = J.shape[0]
-        if (gate == 'X'):
+        if (self.gate == 'X'):
             # initial state - ket |0> on all qubits 
             
             for layer_index in range(params.shape[0]):
@@ -456,7 +464,7 @@ class Solver:
                 case 'expectation':
                     return qml.expval(H_cost)
         
-        if (gate == 'Z'):
+        if (self.gate == 'Z'):
             
             # initial state - ket |+> on all qubits 
             for layer_index in range(params.shape[0]):
@@ -484,7 +492,7 @@ class Solver:
                     return state
                 case 'expectation':
                     return qml.expval(H_cost)
-    def _MA_hardware_efficient_circuit (self, J : np.ndarray, h : np.ndarray, H_cost : np.tensor, params : np.ndarray, mode : str = 'state', gate : str = 'X'):
+    def _MA_hardware_efficient_circuit (self, J : np.ndarray, h : np.ndarray, H_cost : np.tensor, params : np.ndarray, start : str = '', mode : str = 'state', initial_angles = []):
 
         '''
         Multi-angle hardware-efficient ansatz circuit 
@@ -504,7 +512,8 @@ class Solver:
         H_cost : np.tensor 
             Cost hamiltonian 
         params : np.ndarray 
-            array of optimizable parameters with shape([2 * depth, dim]) because Mixer + Cost
+            -Cold: array of optimizable parameters with shape([2 * depth, dim]) because Mixer + Cost
+            -Warm: array of optimizable parameters with shape([3 * depth, dim]) because warm-Mixer + Cost
         mode : str 
             state or expectation 
         gate : str 
@@ -512,9 +521,8 @@ class Solver:
         '''
 
         dim = J.shape[0]
-        if (gate == 'X'):
+        if (self.gate == 'X'):
             # initial state - ket |0> on all qubits 
-            
             for layer_index in range(params.shape[0]):
                 if (layer_index % 2 == 0): #mixer layer
                     for i in range(dim): 
@@ -539,23 +547,47 @@ class Solver:
                 case 'expectation':
                     return qml.expval(H_cost)
         
-        if (gate == 'Z'):
+        if (self.gate == 'Z'):
+
+            if (start == ''):
+                for i in range(dim): #cold initial state ket |+> on all qubits
+                    qml.H(wires = i) 
+            elif (start == 'WS'):
+                for i in range(dim): #cold initial state
+                    qml.RY(phi = initial_angles[i], wires = i) 
             
-            # initial state - ket |+> on all qubits 
             for layer_index in range(params.shape[0]):
-                if (layer_index % 2 == 0): #mixer layer 
-                    for i in range(dim): 
-                        qml.RY(phi = params[layer_index, i], wires = i)
+                
+                if (start == 'WS'): # warm
+                    if (layer_index % 3 == 0): 
+                        for i in range(dim): 
+                            alpha = params[layer_index, i]
+                            beta = params[layer_index + 1, i]
+                            qml.RZ(phi = -alpha, wires = i)
+                            qml.RY(phi = -2 * beta, wires = i)
+                            qml.RZ(phi = -2 * alpha, wires = i)
+                        
+                    elif (layer_index % 3 == 2): # cost layer
+                        for i in range (dim):
+                            wire1 = i
+                            if (wire1 == dim - 1):
+                                wire2 = 0
+                            else: 
+                                wire2 = wire1 + 1
+                            qml.IsingZZ(phi = params[layer_index, i], wires = [wire1, wire2])
+                else: # cold 
+                    if (layer_index % 2 == 0): #mixer layer 
+                        for i in range(dim): 
+                            qml.RY(phi = params[layer_index, i], wires = i)
 
-                else: #cost layer
-                    for i in range (dim):
-                        wire1 = i
-                        if (wire1 == dim - 1):
-                            wire2 = 0
-                        else: 
-                            wire2 = wire1 + 1
-                        qml.IsingZZ(phi = params[layer_index, i], wires = [wire1, wire2])
-
+                    else: #cost layer
+                        for i in range (dim):
+                            wire1 = i
+                            if (wire1 == dim - 1):
+                                wire2 = 0
+                            else: 
+                                wire2 = wire1 + 1
+                            qml.IsingZZ(phi = params[layer_index, i], wires = [wire1, wire2])
             match mode : 
                 case 'state':
                     state = np.array([qml.expval(qml.PauliZ(i)) for i in range (dim)])
@@ -566,7 +598,7 @@ class Solver:
                 case 'expectation':
                     return qml.expval(-H_cost)
                 
-    def _MA_alternating_layer_circuit (self, J : np.ndarray, h : np.ndarray, H_cost : np.tensor, params : np.ndarray, mode : str = 'state', gate : str = 'X'): 
+    def _MA_alternating_layer_circuit (self, J : np.ndarray, h : np.ndarray, H_cost : np.tensor, params : np.ndarray, mode : str = 'state'): 
         ''' 
         Alternating-layer structured hardware-efficient ansatz circuit 
         
@@ -597,7 +629,7 @@ class Solver:
         dim = J.shape[0]
         sub_dim = dim // 2
         shift = dim // 4
-        if (gate == 'X'):
+        if (self.gate == 'X'):
             # initial state - ket |0> on all qubits 
             start = 0
             for layer_index in range(params.shape[0]):
@@ -629,7 +661,7 @@ class Solver:
                 case 'expectation':
                     return qml.expval(H_cost)
         
-        if (gate == 'Z'):
+        if (self.gate == 'Z'):
             
             # initial state - ket |0> on all qubits 
             start = 0
@@ -849,7 +881,7 @@ class Solver:
         cutvector = (normal.T @ S) / np.linalg.norm(normal.T @ S)
 
         # cutvalue = self._calculateMaxcut(W, cutvector, needs0 = False)
-        print(cutvector)
+        #print(cutvector)
         return cutvector [1:]
     
     def _warmStart(self, Q: np.ndarray, eps: float = 0.25):
@@ -955,7 +987,7 @@ class Solver:
             
         return J, h 
     
-    def isingHamiltonian (self, J : np.ndarray, h : np.ndarray, gate : str = 'X') -> np.tensor:
+    def isingHamiltonian (self, J : np.ndarray, h : np.ndarray) -> np.tensor:
 
         """
         Prepare XX gates based cost Hamiltonian from the given matrix
@@ -972,7 +1004,7 @@ class Solver:
 
         H = 0 * qml.I(0)
         dim = J.shape[0]
-        if (gate == 'X'):
+        if (self.gate == 'X'):
             for i in range (dim):
                 for j in range (dim):
                     if (i != j):
@@ -989,7 +1021,7 @@ class Solver:
                 H += X_h
                             
             return H    
-        elif (gate == 'Z'):
+        elif (self.gate == 'Z'):
             for i in range (dim):
                 for j in range (dim):
                     if (i != j):
@@ -1010,7 +1042,7 @@ class Solver:
     
         
 
-    def solve (self, Q: np.ndarray, depth : int, sol : float, stepsize: float, log = True, gate : str = 'X', barencheck : bool = False): 
+    def solve (self, Q: np.ndarray, depth : int, sol : float, stepsize: float, log = True): 
         
         '''
             Circuit optimizer
@@ -1029,7 +1061,20 @@ class Solver:
                 should i print logs 
             Returns 
             -------
-            
+            minsol : float 
+                Ising problem min value
+            bitstring : np.ndarray 
+                Ising problem solution bitstring
+            minstate : np.ndarray
+                Quantum solution state
+            itererr : list[len(accepterr)]
+                a list of iterations counts to reach listed in accepterr errors
+            end - start : float 
+                time it took 
+            baren_flag  : bool 
+                have stopped because of a baren plateau
+            baren_index : int 
+                iteration number on which baren plateau occured
         '''
 
         # ToDo
@@ -1039,7 +1084,7 @@ class Solver:
 
         #Converting to Ising problem
         J, h = self._isingForm(Q)
-        H_cost = self.isingHamiltonian(J, h, gate = gate)
+        H_cost = self.isingHamiltonian(J, h)
         dim = J.shape[0]
 
         #setting the optimizer
@@ -1052,7 +1097,7 @@ class Solver:
         initial_angles = np.zeros(Q.shape[0])
         if (self.preprocessing == 'WS'): 
             initial_angles = self._warmStart(Q) #prepare warm initial angles if needed 
-            print(f'initial_angles: {initial_angles}')
+            if (log): print(f'initial_angles: {initial_angles}')
         low, high = -1,1
         match self.ansatz: 
             case 'CIA':
@@ -1074,7 +1119,10 @@ class Solver:
                 params = np.random.uniform(size = (1, 2 * depth), low = low, high = high, requires_grad = True)[0]
                 circuit = qml.QNode(self._hardware_efficient_circuit, self.dev)
             case 'MA-HEA':     
-                params = np.random.uniform(size = (2 * depth, dim), low = low, high = high, requires_grad = True)
+                if (self.preprocessing == 'WS'):
+                    params = np.random.uniform(size = (3 * depth, dim), low = low, high = high, requires_grad = True)
+                else:
+                    params = np.random.uniform(size = (2 * depth, dim), low = low, high = high, requires_grad = True)
                 circuit = qml.QNode(self._MA_hardware_efficient_circuit, self.dev)
             case 'MA-ALT':
                 params = np.random.uniform(size = (2 * depth, dim), low = low, high = high, requires_grad = True)
@@ -1082,62 +1130,96 @@ class Solver:
                 
         def cost_circuit(params):
             if (self.postprocessing == 'CVaR'):
-                cost = self._CVaR_expectation(J,h,samples = circuit(J = J, h = h, H_cost = H_cost, params = params, start = self.preprocessing, mode = 'samples', gate = gate, initial_angles = initial_angles))
-                print (cost)
+                cost = self._CVaR_expectation(J,h,samples = circuit(J = J, h = h, H_cost = H_cost, params = params, start = self.preprocessing, mode = 'samples', initial_angles = initial_angles))
+                #print (cost)
                 return cost
             else: 
-                return circuit(J = J, h = h, H_cost = H_cost, params = params, start = self.preprocessing, mode = 'expectation', gate = gate, initial_angles = initial_angles)
+                return circuit(J = J, h = h, H_cost = H_cost, params = params, start = self.preprocessing, mode = 'expectation', initial_angles = initial_angles)
         def energy_circuit(params): 
-            return circuit(J = J, h = h, H_cost = H_cost, params = params, start = self.preprocessing, mode = 'expectation', gate = gate, initial_angles = initial_angles)
+            return circuit(J = J, h = h, H_cost = H_cost, params = params, start = self.preprocessing, mode = 'expectation', initial_angles = initial_angles)
         def state_circuit(params):
-            return circuit (J = J, h = h, H_cost = H_cost, params = params, start = self.preprocessing, mode = 'state', gate = gate, initial_angles = initial_angles)
+            return circuit (J = J, h = h, H_cost = H_cost, params = params, start = self.preprocessing, mode = 'state', initial_angles = initial_angles)
         def ket_circuit(params): 
-            return circuit (J = J, h = h, H_cost = H_cost, params = params, start = self.preprocessing, mode = 'ket', gate = gate, initial_angles = initial_angles)
+            return circuit (J = J, h = h, H_cost = H_cost, params = params, start = self.preprocessing, mode = 'ket', initial_angles = initial_angles)
         
         def cursol_circuit(params): 
             if (self.postprocessing == 'CVaR'):
-                cost = self._CVaR_expectation(J,h,samples = circuit(J = J, h = h, H_cost = H_cost, params = params, start = self.preprocessing, mode = 'samples', gate = gate, initial_angles = initial_angles))
+                cost = self._CVaR_expectation(J,h,samples = circuit(J = J, h = h, H_cost = H_cost, params = params, start = self.preprocessing, mode = 'samples', initial_angles = initial_angles))
                 return cost
             else: 
-                bitstring = state_circuit(params)
-                bitstring = np.where(bitstring > 0, 1, -1)
-            
+                state = state_circuit(params)
+                bitstring = np.where(state > 0, 1, -1)
                 return self._calculateIsing(J, h, bitstring)
             
         quantum_iterations = 0
-        #start = time.time()
+        
         cursol = 1e8
         
         exiterr = self.accepterr[0] # error with which we conclude algortihm to be best-fit
         itererr = [-1] * len(self.accepterr) # list of iterations for fitting in each error 
         
-        minsol = 1e9
+        minsol = 1e8
         minstate = np.zeros(dim)
         minket = np.zeros(2 ** dim)
+
+        start = time.time()
+
+        bitstring = np.array([])
+
+        energy_gradients = queue.Queue(maxsize = self.baren_threshold)
+        energy_mean_grad = 1e8
+        baren_flag = False 
+        preenergy = 0
+        preparams = []
         while (quantum_iterations <= self.iteration_limit) and (np.abs((cursol - sol) / sol) > exiterr): 
             #print(params)
+        
             params = optimizer.step(cost_circuit, params)
             state = state_circuit(params)
+            curenergy = energy_circuit(params)
             cursol = cursol_circuit(params)
-            quantum_iterations += 1 
+            
             
             if (cursol < minsol):
                 minsol = cursol 
-                minstate = state 
-                
+                minstate = state
+                bitstring = np.where(minstate > 0, 1, -1)
+            
+            #calculate energy-gradient
+            
+            if (self.baren_check) and (quantum_iterations > 0):
+                energy_grad = np.abs(curenergy - preenergy) #/ np.linalg.norm(preparams - params)
+                energy_gradients.put(energy_grad)
+                energy_mean_grad = np.mean(list(energy_gradients.queue))
+
+                if (energy_gradients.qsize() == self.baren_threshold) and (np.abs(energy_mean_grad / curenergy) < self.baren_rerr):
+                    baren_flag = True 
+                    print('baren detected')
+                    break
+
+            if (quantum_iterations > 1) and (energy_gradients.qsize() == self.baren_threshold): 
+                energy_gradients.get()
+
+            quantum_iterations += 1 
+
+            if (log) and (quantum_iterations % 1 == 0): 
+                print (f'Ansatz: {self.ansatz} Iteration: {quantum_iterations} | State: {state} | Sol: {sol} | Cursol: {cursol} | Curenergy: {curenergy} | Preenergy: {preenergy} | Baren_queue: {list(energy_gradients.queue)} | {energy_mean_grad}')
+            
             #calculating error
             err = np.abs((cursol - sol) / sol)
             ierr = 0
             while (ierr < len(self.accepterr) - 1) and (self.accepterr[ierr] < err) :
                 ierr += 1 
+                print(ierr)
             itererr[ierr] = quantum_iterations
-
-            if (log) and (quantum_iterations % 1 == 0): 
-                print (f'Ansatz: {self.ansatz} Iteration: {quantum_iterations} | State: {state} | Sol: {sol} | Cursol: {cursol} | Curenergy_1: {energy_circuit(params)} | Curenergy_2: {energy_circuit(params)}')
             
+            preenergy = curenergy
+            preparams = params
+
         #print(f'Converged with vector {bitstring} and min energy {cursol}')
-        #end = time.time()
-        print(f'itererr: {itererr}')
-        print(f'minket: {minstate}')
+        end = time.time()
+        baren_index = quantum_iterations - self.baren_threshold
+        return minsol, bitstring, minstate, itererr, end - start, baren_flag, baren_index
+        
 
    
