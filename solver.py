@@ -51,7 +51,7 @@ class Solver:
         self.preprocessing = preprocessing
         self.postprocessing = postprocessing
         self.ansatz = ansatz 
-        self.iteration_limit = iterations_limit 
+        self.iterations_limit = iterations_limit 
         self.accepterr = accepterr 
         self.alpha = alpha
         self.baren_check = baren_check 
@@ -1173,7 +1173,7 @@ class Solver:
         baren_flag = False 
         preenergy = 0
         preparams = []
-        while (quantum_iterations <= self.iteration_limit) and (not np.allclose(cursol, sol)): #np.abs((cursol - sol) / sol) > exiterr): 
+        while (quantum_iterations <= self.iterations_limit) and (not np.allclose(cursol, sol)): #np.abs((cursol - sol) / sol) > exiterr): 
             #print(params)
         
             params = optimizer.step(cost_circuit, params)
