@@ -1067,6 +1067,8 @@ class Solver:
                 Ising problem solution bitstring
             minstate : np.ndarray
                 Quantum solution state
+            quantum_iterations : int 
+                a number of quantum iterations needed to converge or reach the iterations limit
             itererr : list[len(accepterr)]
                 a list of iterations counts to reach listed in accepterr errors
             end - start : float 
@@ -1171,7 +1173,7 @@ class Solver:
         baren_flag = False 
         preenergy = 0
         preparams = []
-        while (quantum_iterations <= self.iteration_limit) and (np.abs((cursol - sol) / sol) > exiterr): 
+        while (quantum_iterations <= self.iteration_limit) and (not np.allclose(cursol, sol)): #np.abs((cursol - sol) / sol) > exiterr): 
             #print(params)
         
             params = optimizer.step(cost_circuit, params)
@@ -1192,7 +1194,7 @@ class Solver:
                 energy_gradients.put(energy_grad)
                 energy_mean_grad = np.mean(list(energy_gradients.queue))
 
-                if (energy_gradients.qsize() == self.baren_threshold) and (np.abs(energy_mean_grad / curenergy) < self.baren_rerr / (self.iteration_limit - quantum_iterations)):
+                if (energy_gradients.qsize() == self.baren_threshold) and (np.abs(energy_mean_grad / curenergy) < self.baren_rerr / (self.iterations_limit - quantum_iterations)):
                     baren_flag = True 
                     #print('baren detected')
                     break
@@ -1219,7 +1221,7 @@ class Solver:
         #print(f'Converged with vector {bitstring} and min energy {cursol}')
         end = time.time()
         baren_index = quantum_iterations - self.baren_threshold
-        return minsol, bitstring, minstate, itererr, end - start, baren_flag, baren_index
+        return minsol, bitstring, minstate, quantum_iterations, itererr, end - start, baren_flag, baren_index
         
 
    
