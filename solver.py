@@ -1042,7 +1042,7 @@ class Solver:
     
         
 
-    def solve (self, Q: np.ndarray, depth : int, sol : float, stepsize: float, log = True): 
+    def solve (self, Q: np.ndarray, depth : int, sol : float, stepsize: float, log = False): 
         
         '''
             Circuit optimizer
@@ -1194,7 +1194,7 @@ class Solver:
 
                 if (energy_gradients.qsize() == self.baren_threshold) and (np.abs(energy_mean_grad / curenergy) < self.baren_rerr):
                     baren_flag = True 
-                    print('baren detected')
+                    #print('baren detected')
                     break
 
             if (quantum_iterations > 1) and (energy_gradients.qsize() == self.baren_threshold): 
@@ -1207,11 +1207,11 @@ class Solver:
             
             #calculating error
             err = np.abs((cursol - sol) / sol)
-            ierr = 0
-            while (ierr < len(self.accepterr) - 1) and (self.accepterr[ierr] < err) :
-                ierr += 1 
-                print(ierr)
-            itererr[ierr] = quantum_iterations
+
+            for ierr in range(len(itererr)):
+                if (self.accepterr[ierr] >= err) and (itererr[ierr] == -1):
+                    itererr[ierr] = quantum_iterations 
+           
             
             preenergy = curenergy
             preparams = params
