@@ -123,46 +123,65 @@ class Preparator:
 
         '''
         
-        real_arr = np.random.uniform(low = value_range[0], high = value_range[1], size = (1, size // 2))[0]
-        imaginary_arr = np.random.uniform(low = value_range[0], high = value_range[1], size = (1, size // 2))[0]
+        real_arr = np.random.uniform(low = value_range[0], high = value_range[1], size = (1, size))[0]
 
-        complex_arr = real_arr + 1j * imaginary_arr
+        # imaginary_arr = np.random.uniform(low = value_range[0], high = value_range[1], size = (1, size // 2))[0]
 
-        min_index = np.argmin(np.abs(complex_arr))
-        max_index = np.argmax(np.abs(complex_arr))
+        # complex_arr = real_arr + 1j * imaginary_arr
 
-        correction = stiffness / (np.abs(complex_arr[max_index]) / np.abs(complex_arr[min_index]))
+        min_index = np.argmin(np.abs(real_arr))
+        max_index = np.argmax(np.abs(real_arr))
+        
+        correction = stiffness / (np.abs(real_arr[max_index]) / np.abs(real_arr[min_index]))
 
-        complex_arr[max_index] *= correction 
+        # complex_arr[max_index] *= correction 
         real_arr[max_index] *= correction
-        imaginary_arr[max_index] *= correction
-        matrix = np.zeros(shape = [size, size])
+        matrix = np.diag(real_arr)
+        # imaginary_arr[max_index] *= correction
+        # matrix = np.zeros(shape = [size, size])
         
         #prepating a matrix of blocks 
         # (a b)
         # (-b a)
 
-        for i in range(0,size - size % 2, 2):
-            matrix[i, i] = real_arr[i // 2] 
-            matrix[i + 1, i + 1] = real_arr[i // 2]
-            matrix[i, i + 1] = imaginary_arr[i // 2]
-            matrix[i + 1, i] = -imaginary_arr[i // 2]  
 
-        if (size % 2 == 1):
-            matrix[size - 1, size - 1] = np.abs(complex_arr[min_index])
+        # for i in range(0,size - size % 2, 2):
+        #     matrix[i, i] = real_arr[i // 2] 
+        #     matrix[i + 1, i + 1] = real_arr[i // 2]
+        #     matrix[i, i + 1] = imaginary_arr[i // 2]
+        #     matrix[i + 1, i] = -imaginary_arr[i // 2]  
+
+        # if (size % 2 == 1):
+        #     matrix[size - 1, size - 1] = np.abs(complex_arr[min_index])
     
-        C = np.random.uniform (low = -1, high = 1, size = (size, size))
+        Temp = np.random.uniform (low = -1, high = 1, size = (size, size))
+        
+        #print (f'C : {C}')
+
+        C, R = np.linalg.qr(Temp)
+        # C = C + C.T 
+        # print (f'is ortogonal {np.allclose(C.T, np.linalg.inv(C))}')
 
         matrix = np.linalg.inv(C) @ matrix @ C
         
-        #Normalize 
+        # #Normalize 
+
+        # A = A^T
+
+        # C^T = C^-1 
+
+        # (C^-1 A C) ^ T = C^T A^T (C^-1)^T = C^-1 A C 
 
         norm = max(value_range, key = np.abs) / max(matrix.reshape(-1,), key = np.abs)
 
         matrix *= norm
+
         
-        return (matrix + matrix.T) / 2
-    
+        return matrix
+
+
+
+
     def isingForm (self, Q: np.ndarray) -> list[np.ndarray, np.ndarray]:
         '''Prepare Ising form of QUBO problem
         
