@@ -1194,7 +1194,7 @@ class Solver:
                 energy_gradients.put(energy_grad)
                 energy_mean_grad = np.mean(list(energy_gradients.queue))
 
-                if (energy_gradients.qsize() == self.baren_threshold) and (np.abs(energy_mean_grad / curenergy) < self.baren_rerr / (self.iterations_limit - quantum_iterations)):
+                if (energy_gradients.qsize() == self.baren_threshold) and (np.abs(energy_mean_grad / curenergy) < self.baren_rerr / energy_gradients.qsize()):
                     baren_flag = True 
                     #print('baren detected')
                     break
