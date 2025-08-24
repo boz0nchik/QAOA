@@ -1,0 +1,2 @@
+Id (int),Valid (int),Updated (str),Matrix (mat),Size (int),Type (str),Rank (int),Density (flt),Stiffness (flt),Penalty (flt),Other (flt),Test_solver (str),Test (flt),Test_state (vec),Test_iterations (int),Test_time (flt),Train_solver (str),Preprocessing (str),Postprocessing (str),Train (flt),Train_state (vec),Train_iterations (int),Train_iterations_1 (int),Train_iterations_2 (int),Train_iterations_3 (int),Train_cost (flt),Train_shots (int),Train_time (flt),Flags (str),Baren (int)
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
