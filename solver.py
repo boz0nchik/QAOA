@@ -1117,9 +1117,8 @@ class Solver:
         Gp = np.where(G >= 0, G, 0) + Gd
         Gn = np.where(G <= 0, G, 0) + Gd
         #print(f'Qd : {np.diag(Qd)}, np.sum(Qp) : {np.sum(Qp, axis = 1)}') 
-        WC = np.array([np.diag(Qd) + np.sum(Qp, axis = 1), -np.diag(Qd) - np.sum(Qn, axis = 1)]).reshape(1, 2 * N)[0]
-        WG = np.array([np.diag(Gd) + np.sum(Gp, axis = 1), -np.diag(Gd) - np.sum(Gn, axis = 1)]).reshape(1, 2 * N)[0]
-        #print(f'shape : {WC.shape}')
+        WC = np.array([np.sum(Qp, axis = 1), - np.sum(Qn, axis = 1)]).reshape(1, 2 * N)[0]
+        WG = np.array([np.sum(Gp, axis = 1), - np.sum(Gn, axis = 1)]).reshape(1, 2 * N)[0]
         #WC = np.max(np.array([-np.diag(Qd) + np.sum(Qp, axis=1), np.diag(Qd) - np.sum(Qn, axis=1)]), axis=0)
         #WG = np.min(np.array([-np.diag(Gd) + np.sum(Gp, axis=1), np.diag(Gd) - np.sum(Gn, axis=1)]), axis=0)
         VLM = np.max(np.abs(WC))
