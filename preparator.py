@@ -307,3 +307,108 @@ class Preparator:
                             
             return H
 
+    def constrained_data(self, Q: np.ndarray, K: float, M: float) -> np.ndarray:
+        """
+        Calculates Q coefficient for QUBO model with budget equality constraint.
+
+        Parameters
+        ----------
+        Q : np.ndarray
+            Unconstrained MPT Q matrix, shape([dim,dim]).
+        K : float
+            Budget size.
+        M : float
+            Enforced budget penalty coefficient.
+
+        Returns
+        -------
+        Q : np.ndarray
+            Constrained MPT Q matrix, shape([dim,dim]).
+        """
+        N = Q.shape[0]
+        E = np.ones([N, N])
+        Id = np.diag(np.ones(N))
+        G = E - 2 * K * Id
+        Q = Q + M * (G)
+
+        return Q
+
+    def penalty_weight(self, Q: np.ndarray, K: float, type: str | str = 'MOC') -> float:
+        """
+        Calculates penalty weights from https://arxiv.org/abs/2206.11040 rn for budger equality constraint
+    
+        Parameters
+        ----------
+        Q : np.ndarray
+            Unconstrained MPT Q matrix, shape([dim,dim]).
+        K : int
+            Budget size. NOte that K==N/2 doesn't work for some reason
+        type : str, optional
+            Corresponds to the type of penalty weight from article. Current types:
+            MOC: Maximum change in Objective function (most optimal)
+            MOMC: Maximum change in Objective function divided by Minimum Constraint function
+            VLM: https://www.researchgate.net/publication/342539451_Penalty_and_partitioning_techniques_to_improve_performance_of_QUBO_solvers
+            MQC: The Maximum QUBO Coe
+    cient
+            UB: Upper Bound of the objective function
+            
+        Returns
+        -------
+        M : float
+            Calculated penalty coefficient.
+        """
+        N = Q.shape[0]
+        E = np.ones([N, N])
+        #print(f'E : {E}')
+        Id = np.diag(np.ones(N))
+        
+        if type == 'UB':
+            return np.sum(Q)
+        elif type == 'MQC':
+            return np.max(Q)
+            
+        G = E -  2 * K * Id  #your penalty form. Can be updated for different penalty types
+        #print(f'G : {G}')
+        WC = np.zeros([N])
+        WG = np.zeros([N])
+        Qd = np.diag(np.diag(Q))
+        #print(f'Qd : {Qd}')
+        Q = Q - Qd
+        Gd = np.diag(np.diag(G))
+        G = G - Gd
+        Qp = np.where(Q >= 0, Q, 0) + Qd
+        Qn = np.where(Q <= 0, Q, 0) + Qd
+        Gp = np.where(G >= 0, G, 0) + Gd
+        Gn = np.where(G <= 0, G, 0) + Gd
+        #print(f'Qd : {np.diag(Qd)}, np.sum(Qp) : {np.sum(Qp, axis = 1)}') 
+        WC = np.array([np.diag(Qd) + np.sum(Qp, axis = 1), -np.diag(Qd) - np.sum(Qn, axis = 1)]).reshape(1, 2 * N)[0]
+        WG = np.array([np.diag(Gd) + np.sum(Gp, axis = 1), -np.diag(Gd) - np.sum(Gn, axis = 1)]).reshape(1, 2 * N)[0]
+        #print(f'shape : {WC.shape}')
+        #WC = np.max(np.array([-np.diag(Qd) + np.sum(Qp, axis=1), np.diag(Qd) - np.sum(Qn, axis=1)]), axis=0)
+        #WG = np.min(np.array([-np.diag(Gd) + np.sum(Gp, axis=1), np.diag(Gd) - np.sum(Gn, axis=1)]), axis=0)
+        VLM = np.max(np.abs(WC))
+        #print(f'WG : {WG}')
+        # print(f'WG > 0 : {WG > 0}')
+        # print(f'MC : {WC}')
+        # WGp, WCp = [], []
+        # for i in range(len(WG)):
+        #     if (WG[i] > 0):
+        #         WGp.append(WG[i])
+        #         WCp.append(WC[i]) 
+        WGp = WG[WG > 0]
+        WCp = WC[WG > 0]
+        WGp = np.array(WGp)
+        WCp = np.array(WCp)
+        gamma = np.min(WGp)
+        #print(gamma)
+        MOMC = np.max([1, VLM / gamma])
+        MOC = np.max([1, np.max(np.abs(WCp/WGp))])
+        
+        if type == 'VLM':
+            M = VLM
+        elif type == 'MOMC':
+            M = MOMC
+        elif type == 'MOC':
+            M = MOC
+
+        return M
