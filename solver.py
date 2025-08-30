@@ -598,8 +598,10 @@ class Solver:
                 case 'expectation':
                     return qml.expval(-H_cost)
                 
-    def _MA_alternating_layer_circuit (self, J : np.ndarray, h : np.ndarray, H_cost : np.tensor, params : np.ndarray, mode : str = 'state'): 
+    def _MA_alternating_layer_circuit (self, J : np.ndarray, h : np.ndarray, H_cost : np.tensor, params : np.ndarray, start : str = '', mode : str = 'state', initial_angles = []): 
         ''' 
+        **! ACHTUNG ! NO START OPTIONS YET**
+
         Alternating-layer structured hardware-efficient ansatz circuit 
         
         **Initial state:** put all qubits in $\ket{+}$ using H gate (for Z basis) or do nothing (for X basis) 
