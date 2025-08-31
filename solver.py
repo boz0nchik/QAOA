@@ -752,7 +752,7 @@ class Solver:
             ising matrix 
         h : np.ndarray 
             ising vector
-        constraint : bool = True
+        constraint : bool = False
             does QUBO problem has bit sum constraint
         k : int = 0 
             the sum constraint
@@ -776,14 +776,14 @@ class Solver:
         for bits in product([1, -1], repeat = dim):
             bits = np.array(bits)
             val = self._calculateIsing(J,h,bits)
-            if (val < min_val) and (np.sum(np.where(bits > 0, 1, 0)) == k): 
+            if (val < min_val) and ((np.sum(np.where(bits > 0, 1, 0)) == k) or (not constrain)): 
                 min_val = val
             #pbar.update(1)
         
         for bits in product([1, -1], repeat = dim):
             bits = np.array(bits)
             val = self._calculateIsing(J,h, bits) 
-            if (val == min_val) and (np.sum(np.where(bits > 0, 1, 0)) == k): 
+            if (val == min_val) and ((np.sum(np.where(bits > 0, 1, 0)) == k) or (not constrain)): 
                 sol_states.append(bits)
 
             #pbar.update(1)
@@ -1335,7 +1335,7 @@ class Solver:
         baren_flag = False 
         preenergy = 0
         preparams = []
-        while (quantum_iterations <= self.iterations_limit) and (not np.allclose(cursol, sol)): #np.abs((cursol - sol) / sol) > exiterr): 
+        while ((quantum_iterations <= self.iterations_limit) and (not np.allclose(cursol, sol))) or (cursol < sol): #np.abs((cursol - sol) / sol) > exiterr): 
             #print(params)
         
             params = optimizer.step(cost_circuit, params)
