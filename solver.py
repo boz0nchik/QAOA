@@ -1150,9 +1150,38 @@ class Solver:
 
         return M
 
-        
 
-    def solve (self, Q: np.ndarray, depth : int, sol : float, stepsize: float, log = False, constrain: bool = False, k: int = 0, penalty: str = 'MQC'): 
+    def _stiff_boost (self, Q : np.ndarray, alpha : float = 100.0):
+      
+
+        S = np.linalg.eig(Q)[1].T
+
+        stiffed_diag = np.linalg.eigvals(Q)
+        mini = 0 
+        maxi = 0
+
+        for i in range (len(stiffed_diag)): 
+
+            if (np.allclose(np.abs(stiffed_diag[i]),np.max(np.abs(stiffed_diag)))):
+                maxi = i
+                stiffed_diag[i] *= alpha 
+            if (np.allclose(np.abs(stiffed_diag[i]),np.min(np.abs(stiffed_diag)))):
+                mini = i
+                stiffed_diag[i] /= alpha
+
+
+        D = np.diag(stiffed_diag)
+
+        T = np.diag([1.0] * S.shape[0])
+
+        T[mini,mini] = T[mini,mini] / np.sqrt(alpha)
+        T[maxi, maxi] = T[maxi,maxi] * np.sqrt(alpha) 
+
+        Qs = S.T @ D @ S / alpha
+
+        return Qs
+
+    def solve (self, Q: np.ndarray, depth : int, sol : float, stepsize: float, log = False, constrain: bool = False, k: int = 0, penalty: str = 'MQC', sboosted : bool = False, sboost : float = 100.0): 
         
         '''
             Circuit optimizer
@@ -1173,6 +1202,10 @@ class Solver:
                 True if needs to be constrained
             k : int 
                 bit sum constraint
+            sboosted : bool 
+                True if stiffness boost needed 
+            sboost : float 
+                stiffness boost coefficient 
             Returns 
             -------
             minsol : float 
@@ -1204,10 +1237,14 @@ class Solver:
         if (constrain):
             M = self.penalty_weight(Q, k, penalty)
             Q_constr = self.constrained_data(Q, k, M)
+            if (sboosted): 
+                Q_constr = self._stiff_boost(Q_constr, alpha = sboost)
             J, h = self._isingForm(Q_constr)
             H_cost = self.isingHamiltonian(J, h)
         else:
-            J, h = self._isingForm(Q)            
+            if (sboosted):
+                Q = self._stiff_boost(Q, alpha = sboost)
+            J, h = self._isingForm(Q)     
             H_cost = self.isingHamiltonian(J, h)
 
         J_def, h_def = self._isingForm(Q)
@@ -1216,7 +1253,8 @@ class Solver:
         #setting the optimizer
         optimizer = qml.AdamOptimizer(stepsize)
 
-        
+        eigs = np.abs(np.linalg.eigvals (Q))
+        print(max(eigs) / min(eigs))
 
         #prepating circuits
 
