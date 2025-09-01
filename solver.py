@@ -771,24 +771,39 @@ class Solver:
         min_val = 1e9
         sol_states = []
         dim = J.shape[0]
-
+        if (constrain):
         #with tqdm.tqdm(total = 2 * dim, desc="Brute forcing Ising QUBO") as pbar:
-        for bits in product([1, -1], repeat = dim):
-            bits = np.array(bits)
-            val = self._calculateIsing(J,h,bits)
-            if (val < min_val) and ((np.sum(np.where(bits > 0, 1, 0)) == k) or (not constrain)): 
-                min_val = val
-            #pbar.update(1)
-        
-        for bits in product([1, -1], repeat = dim):
-            bits = np.array(bits)
-            val = self._calculateIsing(J,h, bits) 
-            if (val == min_val) and ((np.sum(np.where(bits > 0, 1, 0)) == k) or (not constrain)): 
-                sol_states.append(bits)
+            for bits in product([1, -1], repeat = dim):
+                bits = np.array(bits)
+                val = self._calculateIsing(J,h,bits)
+                if (val < min_val) and (np.sum(np.where(bits > 0, 1, 0)) == k): 
+                    min_val = val
+                #pbar.update(1)
+            
+            for bits in product([1, -1], repeat = dim):
+                bits = np.array(bits)
+                val = self._calculateIsing(J,h, bits) 
+                if (val == min_val) and (np.sum(np.where(bits > 0, 1, 0)) == k): 
+                    sol_states.append(bits)
 
             #pbar.update(1)
+        else: 
+            for bits in product([1, -1], repeat = dim):
+                bits = np.array(bits)
+                val = self._calculateIsing(J,h,bits)
+                if (val < min_val): 
+                    min_val = val
+                #pbar.update(1)
         
+            for bits in product([1, -1], repeat = dim):
+                bits = np.array(bits)
+                val = self._calculateIsing(J,h, bits) 
+                if (val == min_val): 
+                    sol_states.append(bits)
+
+
         end = time.time()
+
         
         return min_val, sol_states, end - start
 
@@ -1151,35 +1166,47 @@ class Solver:
         return M
 
 
-    def _stiff_boost (self, Q : np.ndarray, alpha : float = 100.0):
+    def _stiff_boost (self, Q : np.ndarray, stiffness : float = 1e8):
       
+        eigs = np.linalg.eigvals(Q)
 
-        S = np.linalg.eig(Q)[1].T
-
-        stiffed_diag = np.linalg.eigvals(Q)
-        mini = 0 
-        maxi = 0
-
-        for i in range (len(stiffed_diag)): 
-
-            if (np.allclose(np.abs(stiffed_diag[i]),np.max(np.abs(stiffed_diag)))):
+        for i in range (len(eigs)):
+            if (np.abs(eigs[i]) == np.min(np.abs(eigs))):
+                mini = i 
+            if (np.abs(eigs[i]) == np.max(np.abs(eigs))):
                 maxi = i
-                stiffed_diag[i] *= alpha 
-            if (np.allclose(np.abs(stiffed_diag[i]),np.min(np.abs(stiffed_diag)))):
-                mini = i
-                stiffed_diag[i] /= alpha
+
+        delta = (eigs[mini] * stiffness - eigs[maxi]) / (stiffness - 1) 
+
+        Q_stiffed = Q - np.identity(Q.shape[0]) * delta
+
+        return Q_stiffed
+        # S = np.linalg.eig(Q)[1].T
+
+        # stiffed_diag = np.linalg.eigvals(Q)
+        # mini = 0 
+        # maxi = 0
+
+        # for i in range (len(stiffed_diag)): 
+
+        #     if (np.allclose(np.abs(stiffed_diag[i]),np.max(np.abs(stiffed_diag)))):
+        #         maxi = i
+        #         stiffed_diag[i] *= alpha 
+        #     if (np.allclose(np.abs(stiffed_diag[i]),np.min(np.abs(stiffed_diag)))):
+        #         mini = i
+        #         stiffed_diag[i] /= alpha
 
 
-        D = np.diag(stiffed_diag)
+        # D = np.diag(stiffed_diag)
 
-        T = np.diag([1.0] * S.shape[0])
+        # T = np.diag([1.0] * S.shape[0])
 
-        T[mini,mini] = T[mini,mini] / np.sqrt(alpha)
-        T[maxi, maxi] = T[maxi,maxi] * np.sqrt(alpha) 
+        # T[mini,mini] = T[mini,mini] / np.sqrt(alpha)
+        # T[maxi, maxi] = T[maxi,maxi] * np.sqrt(alpha) 
 
-        Qs = S.T @ D @ S / alpha
+        # Qs = S.T @ D @ S / alpha
 
-        return Qs
+        # return Qs
 
     def solve (self, Q: np.ndarray, depth : int, sol : float, stepsize: float, log = False, constrain: bool = False, k: int = 0, penalty: str = 'MQC', sboosted : bool = False, sboost : float = 100.0): 
         
@@ -1232,22 +1259,22 @@ class Solver:
             # infinite shots device or bitstring to ket
 
         #Converting to Ising problem
-        
+        Q_origin = np.copy(Q)
         
         if (constrain):
             M = self.penalty_weight(Q, k, penalty)
             Q_constr = self.constrained_data(Q, k, M)
             if (sboosted): 
-                Q_constr = self._stiff_boost(Q_constr, alpha = sboost)
+                Q_constr = self._stiff_boost(Q_constr, stiffness = sboost)
             J, h = self._isingForm(Q_constr)
             H_cost = self.isingHamiltonian(J, h)
         else:
             if (sboosted):
-                Q = self._stiff_boost(Q, alpha = sboost)
+                Q = self._stiff_boost(Q, stiffness = sboost)
             J, h = self._isingForm(Q)     
             H_cost = self.isingHamiltonian(J, h)
 
-        J_def, h_def = self._isingForm(Q)
+        J_def, h_def = self._isingForm(Q_origin)
         dim = J.shape[0]
 
         #setting the optimizer
@@ -1335,7 +1362,7 @@ class Solver:
         baren_flag = False 
         preenergy = 0
         preparams = []
-        while ((quantum_iterations <= self.iterations_limit) and (not np.allclose(cursol, sol))) or (cursol < sol): #np.abs((cursol - sol) / sol) > exiterr): 
+        while ((quantum_iterations <= self.iterations_limit) and (not np.allclose(cursol, sol))): #np.abs((cursol - sol) / sol) > exiterr): 
             #print(params)
         
             params = optimizer.step(cost_circuit, params)
