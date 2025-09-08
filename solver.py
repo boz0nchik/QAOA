@@ -1413,4 +1413,3 @@ class Solver:
         return minsol, bitstring, minstate, quantum_iterations, itererr, end - start, baren_flag, baren_index
         
 
-   
